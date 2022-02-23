@@ -46,8 +46,10 @@
 #define SD_CHIP_SELECT 4
 
 // Start btn
-#define START_BTN 8
+#define START_STOP_BTN 8
 
+
+// ***** OBJECTS ***** //
 
 // Heater dimmer object
 DimmableLight heater(HEATER_CTRL);
@@ -62,11 +64,33 @@ Encoder encoder(E_INT, E_REG);
 SdFat sdCard;
 SdFile sdProfilesFile;
 
+// Temperature profile read from SD card.
+struct tempProfile
+{
+    // A profile with n temps has n-1 stages (segment between temps)
+    byte currentStage = 0;
+
+    byte temps[20];
+    unsigned int times[20];
+};
+
+// ***** GLOBALS ***** //
+
+// Set by START_STOP_BTN
+bool ovenStarted = false;
+
+byte previousEncoderVal = 0;
+
+// Value of millis() when the next temp in the profile was set
+long millisStageStarted = 0;
+
+tempProfile sdTempProfile;
+
 void setup()
 {
     Serial.begin(9600);
 
-    pinMode(START_BTN, INPUT_PULLUP);
+    pinMode(START_STOP_BTN, INPUT_PULLUP);
     pinMode(E_BTN, INPUT_PULLUP);
 
 	// Initialize the display
@@ -166,7 +190,31 @@ void updateDisplay(String status, byte realTemp, byte setTemp,
 
 void checkButtons()
 {
+    // Scroll through temperature profiles
+    if(encoder.read() > 0)
+        scrollSDProfile(true);
+    else if(encoder.read() < 0)
+        scrollSDProfile(false);
+    encoder.readAndReset();
 
+    // Encoder clicked
+    if(digitalRead(E_BTN) == LOW)
+        selectSDProfile();
+
+    // Start button
+    if(digitalRead(START_STOP_BTN) == LOW && !ovenStarted)
+        ovenStarted = true;
+
+    // 3s long press to shut down oven
+    int timePressed = 0;
+    while (digitalRead(START_STOP_BTN) == LOW)
+    {
+        delay(10);
+        timePressed += 10;
+    }
+
+    if(timePressed > 3000)
+        ovenFinished(F("Manual shutdown"));
 }
 
 int getNextSDTempTime()
@@ -174,9 +222,18 @@ int getNextSDTempTime()
     return 0;
 }
 
-int interpolateTemp()
+byte interpolateTemp()
 {
-    return 0;
+    // Linearly interpolates values when temperature profile ramps
+    // (y) = y1 + [(x-x1) × (dy)]/ (dx) where y is interpolated temp
+    // TODO how bad is error due to integer truncation here?
+
+    byte i = sdTempProfile.currentStage;
+
+    unsigned int dx = sdTempProfile.times[i+1] - sdTempProfile.times[i];
+    byte         dy = sdTempProfile.temps[i+1] - sdTempProfile.temps[i];
+
+    return sdTempProfile.temps[i] + ( ((millisStageStarted - millis())*dy) / dx );
 }
 
 void scrollSDProfile(bool direction)
@@ -184,9 +241,25 @@ void scrollSDProfile(bool direction)
 
 }
 
+void selectSDProfile()
+{
+
+}
+
 int measureTemp()
 {
-    return 0;
+	// This is based on: adafruits ad8495 article
+    
+    #define AREF 4.5 // Nano is 4.5V 
+    #define ADC_RESOLUTION 10 // Nano is 10 bit
+
+	// Get the raw voltage pin on the thermocouple pin
+	float voltage = 0.5*(analogRead(THERMOCOUPLE_2) + analogRead(THERMOCOUPLE_1))
+                    * (AREF / (pow(2, ADC_RESOLUTION) - 1));
+
+    // Convert the voltage to a value in C 
+    // Adjust the x in (voltage-x) to tune the temperature.
+    return (voltage - 1.59) / 0.005;
 }
 
 void setHeaterPowerPID(byte realTemp, byte targetTemp)
@@ -194,7 +267,7 @@ void setHeaterPowerPID(byte realTemp, byte targetTemp)
 
 }
 
-void ovenFinished()
+void ovenFinished(String status)
 {
 
 }
