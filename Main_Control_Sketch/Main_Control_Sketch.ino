@@ -54,10 +54,7 @@
 #define THERMOCOUPLE_1 A0
 #define THERMOCOUPLE_2 A1
 
-// Start btn
 #define START_STOP_BTN 3
-
-// Select btn
 #define SELECT_BTN 6
 
 
@@ -93,6 +90,7 @@ struct tempProfile
 
 // Set by START_STOP_BTN
 bool ovenStarted = false;
+bool ovenFinished = false;
 
 String displayStatus = "";
 
@@ -102,6 +100,9 @@ long millisStageStarted = 0;
 long lastMillis = millis();
 
 tempProfile sdTempProfile;
+
+// Allows reset of Arduino through software
+void(* resetFunc) (void) = 0;
 
 void setup()
 {
@@ -123,23 +124,16 @@ void setup()
     if(pf_mount(&fs))
     {
         lcd.setCursor(1,1);
-        lcd.print(F("SD mount failed!"));
+        lcd.print(F(" SD mount failed!"));
         while(true)
-        {
             checkButtons();
-        }
     }
 
-    
     configureOven();
 }
 
-
 void loop()
 {
-
-    configureOven();
-
     // Update display 1Hz
     if(millis() - lastMillis > 1000)
     {
@@ -148,25 +142,6 @@ void loop()
     }
 
     checkButtons();
-
-    // if !started:
-        // scroll through temp profiles
-        // check io: encoder/start button
-    // else:
-        // check true temp
-        // read target temp from profile
-        // interpolate current temp needed
-        // set heater power
-        // check IO: stop btn?
-
-    // if time is up:
-        // power off heater
-        // display finished message
-        // wait for start button press
-
-
-
-    
 }
 
 void configureOven()
@@ -318,8 +293,8 @@ void configureOven()
 
     case 21:
         lcd.print(F("   Sponsored by"));
-        lcd.setCursor(0,1);
-        lcd.print(F("     Aliexpress"));
+        lcd.setCursor(0,2);
+        lcd.print(F("    Aliexpress"));
         break;
 
     case 22:
@@ -416,19 +391,18 @@ void checkButtons()
     if(digitalRead(START_STOP_BTN) == LOW)
         ovenStarted = true;
 
-    // 3s long press to shut down oven
+    // 3s long press to shut down or reset oven
     int timePressed = 0;
-    while (digitalRead(START_STOP_BTN) == LOW)
+    while (digitalRead(START_STOP_BTN) == LOW && timePressed <= 3000)
     {
         delay(100);
         timePressed += 100;
-
-        if(timePressed > 3000)
-        {
-            ovenFinished(F("Force Shutdown"));
-            break;
-        }
     }
+
+    if(timePressed >= 3000 && ovenFinished)
+        resetFunc();
+    if(timePressed >= 3000 && ovenStarted)
+        ovenDone(F("Force Shutdown"));
 }
 
 int getNextSDTempTime()
@@ -482,8 +456,33 @@ void setHeaterPowerPID(byte realTemp, byte targetTemp)
 
 }
 
-void ovenFinished(String status)
+void ovenDone(String status)
 {
-    updateDisplay(status, 0,0,0,0,0);
-    while(true) {}
+
+    ovenFinished = true;
+    lcd.clear();
+
+    while(true)
+    {
+        // Update display 1Hz
+        if(millis() - lastMillis > 1000)
+        {
+            // Status message explaining shutdown reason
+            lcd.setCursor(0,0);
+            lcd.print(status);
+
+            // Let user know if oven is cooled off yet
+            lcd.setCursor(0,1);
+            lcd.print(F("Temperature:       "));
+            lcd.setCursor(14, 1);
+            lcd.print(String(measureTemp()));
+
+            lcd.setCursor(0,3);
+            lcd.print(F("Hold Start to reset"));
+            lastMillis = millis();
+        }
+
+        // Check for reset signal
+        checkButtons();
+    }
 }
