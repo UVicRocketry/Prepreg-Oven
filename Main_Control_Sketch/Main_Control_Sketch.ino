@@ -7,20 +7,7 @@
     2 thermocouples are used for feedback. A microSD card provides a convenient
     way to load temperature profiles with linearly interpolated values.
 
-    SD card structure is as follows:
-        - One file PER profile, named in ascending numerical order.
-            ie: 0.txt 1.txt, 2.txt, 3.txt....
-
-        - Each file contains up to 40 numbers seperated by commas alternating
-            temp,time,temp,time...temp,F where temp is target temperature in C
-            and time is seconds until the next temperature.
-            
-            The line must be terminated by the letter "F". 
-            
-            Fewer than 40 values can be used, but F must always end the line.
-            
-            ie: 20,2000,50,10000,100,10000,F
-        
+    See README for temperature profile structure.
 
     Author: JJ D
 
@@ -48,14 +35,14 @@
 
 // Dimmer breakout board
 #define HEATER_INT  2 // Interrupt capable
-#define HEATER_CTRL 4
+#define HEATER_CTRL 3
 
 // Thermocouple breakout boards
 #define THERMOCOUPLE_1 A0
 #define THERMOCOUPLE_2 A1
 
-#define START_STOP_BTN 3
-#define SELECT_BTN 6
+#define START_STOP_BTN 4
+#define SELECT_BTN 5
 
 
 // ***** OBJECTS ***** //
@@ -70,8 +57,6 @@ LiquidCrystal_I2C lcd(0x3F, 20, 4);
 PetitSerial PS;
 #define Serial PS
 FATFS fs;
-
-
 
 // Temperature profile read from SD card.
 struct tempProfile
@@ -129,6 +114,7 @@ void setup()
             checkButtons();
     }
 
+    // Temperature profile selection
     configureOven();
 }
 
@@ -339,9 +325,9 @@ void updateDisplay(String status, byte realTemp, byte setTemp,
         status = "Ramping", could be "Holding" or "Cooling" etc.
         _____________________
         |Temp: 118/120 -> 150|
-        |Stat: Ramping       |
         |27m left in stage   |
         |3.7h remaining      |
+        |Stat: Ramping       |
 
     */
 
@@ -371,14 +357,15 @@ void updateDisplay(String status, byte realTemp, byte setTemp,
     lcd.print("Temp: " + String(realTemp) + "/" + String(setTemp) + " -> "
                 + String(finalStageTemp));
 
-    lcd.setCursor(0,1);
-    lcd.print("Stat: " + status);
     
-    lcd.setCursor(0,2);
+    lcd.setCursor(0,1);
     lcd.print(nextTempStr + " left in stage");
     
-    lcd.setCursor(0,3);
+    lcd.setCursor(0,2);
     lcd.print(totalRemainingStr + " remaining");
+
+    lcd.setCursor(0,3);
+    lcd.print("Stat: " + status);
 }
 
 void checkButtons()
@@ -427,6 +414,19 @@ byte interpolateTemp()
 void scrollSDProfile()
 {
 
+    // Looking for next file
+    sdTempProfile.fileNumber++;
+
+    // Convert fileNumber to char array
+    char fileName[4];
+    itoa(sdTempProfile.fileNumber, fileName, 10);
+
+    // Loop back if no higher file exists
+    if(pf_open(fileName))
+        sdTempProfile.fileNumber = 0;
+
+    // Debounce
+    delay(250);
 }
 
 void selectSDProfile()
