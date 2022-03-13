@@ -67,11 +67,12 @@ struct tempProfile
     // 14 char description of profile. First chars in file.
     char description[15];
 
-    // A profile with n temps has n-1 stages (segment between temps)
-    byte currentStage = 0;
+    // Location in temps and times array
+    byte index = 0;
 
-    byte temps[20];
-    unsigned int times[20];
+    // Set by profile on SD card
+    byte temps[20] = {0};
+    unsigned int times[20] = {0};
 };
 
 // ***** GLOBALS ***** //
@@ -83,9 +84,9 @@ bool ovenFinished = false;
 String displayStatus = "";
 
 // Value of millis() when the next temp in the profile was set
-long millisStageStarted = 0;
+unsigned long millisStageStarted = 0;
 
-long lastMillis = millis();
+unsigned long lastMillis = millis();
 
 tempProfile sdTempProfile;
 
@@ -117,42 +118,59 @@ void setup()
             checkButtons();
     }
 
+    
+    // Read first profile to show its description w/o a button press
+    readSDProfile();
+
     // Temperature profile selection
     configureOven();
 }
 
 void loop()
 {
-    // Update display 1Hz
+    // Check for force shutdown/restart
+    checkButtons();
+
+    // Update display at 1Hz
     if(millis() - lastMillis > 1000)
     {
-        updateDisplay(displayStatus, 20, 50, 60, 6000, 6600);
+        updateDisplay(
+            displayStatus,
+            measureTemp(),
+            interpolateTemp(),
+            sdTempProfile.temps[sdTempProfile.index],
+            sdTempProfile.times[sdTempProfile.index] - (millis() - millisStageStarted)/1000,
+            getTotalTimeRemaining()
+            );
+
         lastMillis = millis();
     }
 
-    checkButtons();
+    // profile array contains 20 values max. Finished if end is reached
+    if(sdTempProfile.index >= 20)
+        ovenDone("Cycle Complete!");
+
+    // Move to next stage in profile if needed
+    if((millis() - millisStageStarted)/1000 > sdTempProfile.times[sdTempProfile.index])
+    {
+        sdTempProfile.index++;
+        millisStageStarted = millis();
+    }
 }
 
 void configureOven()
 {
     lcd.clear();
-    
-    // Read first profile to show its description w/o a button press
-    readSDProfile();
 
     while(!ovenStarted)
     {
         checkButtons();
 
         lcd.setCursor(0,0);
-
-        lcd.print(F("Welcome to OvenOS!"));
-
-        lcd.setCursor(0,1);
         lcd.print(F("Selected cycle: "));
         lcd.print(sdTempProfile.fileNumber);
 
-        lcd.setCursor(0,2);
+        lcd.setCursor(0,1);
         lcd.print(F("Desc: "));
         lcd.print(sdTempProfile.description);
 
@@ -313,12 +331,15 @@ void configureOven()
     lcd.clear();
     delay(1000);
 
+    // Set start of first stage
+    millisStageStarted = millis();
+
     // This jumps to void loop()
 }
 
 void updateDisplay(String status, byte realTemp, byte setTemp, 
                    byte finalStageTemp, unsigned int secondsToNextTemp,
-                   unsigned int totalSecondsRemaining)
+                   unsigned long totalSecondsRemaining)
 {
     /*
         Display is 4 lines, 20 char each
@@ -348,16 +369,21 @@ void updateDisplay(String status, byte realTemp, byte setTemp,
 
     if(totalSecondsRemaining > 3600)
         totalRemainingStr = String(float(totalSecondsRemaining)/3600, 1) + "h";
-    else
+    else if(totalSecondsRemaining > 60)
         totalRemainingStr = String(totalSecondsRemaining / 60) + "m";
+    else
+        totalRemainingStr = "<1m";
 
     // secondsToNextTemp
     String nextTempStr = "";
 
     if(secondsToNextTemp > 3600)
         nextTempStr = String(float(secondsToNextTemp)/3600, 1) + "h";
-    else
+    else if(totalSecondsRemaining > 60)
         nextTempStr = String(secondsToNextTemp / 60) + "m";
+    else
+        nextTempStr = "<1m";
+
 
 
     // Printing to the lcd line by line
@@ -365,7 +391,6 @@ void updateDisplay(String status, byte realTemp, byte setTemp,
     lcd.print("Temp: " + String(realTemp) + "/" + String(setTemp) + " -> "
                 + String(finalStageTemp));
 
-    
     lcd.setCursor(0,1);
     lcd.print(nextTempStr + " left in stage");
     
@@ -403,77 +428,74 @@ void checkButtons()
         ovenDone(F("Force Shutdown"));
 }
 
-int getNextSDTempTime()
-{
-    return 0;
-}
-
 void readSDProfile()
 {
-    // IF THERE ARE ANY BUGS IN THE CODE THEY ARE HERE
+    // IF THERE ARE ANY BUGS IN THE CODE THEY ARE PROBABLY HERE
 
     // Convert fileNumber to char array
-    char fileName[4];
+    char fileName[4] = "   ";
     itoa(sdTempProfile.fileNumber, fileName, 10);
 
-    // Loop back to 0 if no higher file exists
+    // Loop back and open 0 if no higher file exists
     if(pf_open(fileName))
-        sdTempProfile.fileNumber = 0;
-
-    // Otherwise, update sdTempProfile with the contents of the file
-    else
     {
-        // Read the description (first 14 chars)
-        UINT bytesRead;
-        pf_read(sdTempProfile.description, 14, &bytesRead);
-        Serial.println("Read " + String(bytesRead) + " bytes");
+        sdTempProfile.fileNumber = 0;
+        pf_open("0");
+    }
 
-        // Read csv into sdTempProfile.
-        
-        // Move past the comma after description
-        pf_lseek(fs.fptr + 1);
+    // Update sdTempProfile with the contents of the file
 
-        // 5 char is enough to store max value of unsigned in
-        char charsNum[6];
-        
-        // Location in sdTempProfile arrays
-        byte profileIndex;
+    // Read the description (first 14 chars)
+    UINT bytesRead;
+    pf_read(sdTempProfile.description, 14, &bytesRead);
 
-        // Index in charsNum 
-        byte charIndex;
+    // Move past the comma after description
+    pf_lseek(fs.fptr + 1);
 
-        // true means temp, false means time
-        bool isTemp = true;     
 
-        // bytesRead = 0 when EOF is reached
-        while(bytesRead > 0) 
+    // Next read csv into sdTempProfile.
+
+    // 5 char is enough to store max value of unsigned int
+    char charsNum[6];
+    
+    // Index in charsNum 
+    byte charIndex = 0;
+
+    // Index in temps/times array in sdTempProfile
+    byte profileIndex = 0;
+
+    // true means temp, false means time
+    bool isTemp = true;     
+
+    // bytesRead = 0 when EOF is reached
+    while(bytesRead > 0) 
+    {
+        pf_read(&charsNum[charIndex], 1, &bytesRead);
+
+        // Comma or EOF reached
+        if(bytesRead < 1 || !isDigit(charsNum[charIndex]))
         {
-            pf_read(&charsNum[charIndex], 1, &bytesRead);
+            charsNum[charIndex] = '\0';
+            String strNum = String(charsNum);
 
-            // Comma or EOF reached
-            if(bytesRead < 1 || !isDigit(charsNum[charIndex]))
-            {
-                charsNum[charIndex] = '\0';
-                String strNum = String(charsNum);
-
-                Serial.println("Got strNum: " + strNum);
-
-                // Convert and store value in profile
-                // This breaks if profile contains too large of numbers
-                if(isTemp == true)
-                    sdTempProfile.temps[profileIndex] = strNum.toInt();
-                else
-                {
-                    sdTempProfile.times[profileIndex] = strNum.toInt();
-                    profileIndex++;
-                }
-
-                // Prepare to get next number string
-                charIndex = 0;
+            // Convert and store value in profile
+            // This breaks if profile contains too large of numbers
+            if(isTemp){
+                sdTempProfile.temps[profileIndex] = strNum.toInt();
+                isTemp = false;
             }
             else
-                charIndex++;
+            {
+                sdTempProfile.times[profileIndex] = strNum.toInt();
+                profileIndex++;
+                isTemp = true;
+            }
+
+            // Prepare to get next number string
+            charIndex = 0;
         }
+        else
+            charIndex++;
     }
 
     // Debounce
@@ -486,12 +508,25 @@ byte interpolateTemp()
     // (y) = y1 + [(x-x1) × (dy)]/ (dx) where y is interpolated temp
     // TODO how bad is error due to integer truncation here?
 
-    byte i = sdTempProfile.currentStage;
+    byte i = sdTempProfile.index;
 
     unsigned int dx = sdTempProfile.times[i+1] - sdTempProfile.times[i];
     byte         dy = sdTempProfile.temps[i+1] - sdTempProfile.temps[i];
 
     return sdTempProfile.temps[i] + ( ((millisStageStarted - millis())*dy) / dx );
+}
+
+long getTotalTimeRemaining()
+{
+    long sum = 0;
+
+    // This is guaranteed to add at least the last value in times to sum
+    for(byte i = sdTempProfile.index; i < 20; i++)
+        sum += sdTempProfile.times[i];
+
+    // Subtract mid-stage time elapsed.
+    sum -= (millis() - millisStageStarted)/1000;
+    return sum;
 }
 
 int measureTemp()
@@ -515,9 +550,10 @@ void setHeaterPowerPID(byte realTemp, byte targetTemp)
 
 }
 
+// Status 20 chars max
 void ovenDone(String status)
 {
-
+    setHeaterPowerPID(0, 0);
     ovenFinished = true;
     lcd.clear();
 

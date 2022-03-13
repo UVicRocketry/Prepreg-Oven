@@ -1,5 +1,5 @@
 # ThePrepregOvenProject
-Circuit diagram, Arduino code, etc. related to the Prepreg Oven Project: Uvic Rocketry's custom composite curing oven! The PPO is capable of reading temperature profiles from an SD card. Users can load up to 999 custom profiles with up to 20 target tempertures. Temperature values are linearly interpolated automatically.
+Circuit diagram, Arduino code, etc. related to the Prepreg Oven Project: Uvic Rocketry's custom composite curing oven! The PPO is capable of reading custom temperature profiles from an SD card. Users can load up to 999 profiles with up to 20 target tempertures. Temperature values are linearly interpolated automatically.
 
 ## Interface
 The oven has 2 buttons for controlling various functions:
