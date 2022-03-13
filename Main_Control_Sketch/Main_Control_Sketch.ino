@@ -64,6 +64,9 @@ struct tempProfile
     // Name of the file on the SD card
     byte fileNumber = 0;
 
+    // 14 char description of profile. First chars in file.
+    char description[15];
+
     // A profile with n temps has n-1 stages (segment between temps)
     byte currentStage = 0;
 
@@ -133,6 +136,9 @@ void loop()
 void configureOven()
 {
     lcd.clear();
+    
+    // Read first profile to show its description w/o a button press
+    readSDProfile();
 
     while(!ovenStarted)
     {
@@ -140,11 +146,15 @@ void configureOven()
 
         lcd.setCursor(0,0);
 
-        lcd.print(F(" Welcome to OvenOS!"));
+        lcd.print(F("Welcome to OvenOS!"));
 
         lcd.setCursor(0,1);
-        lcd.print(F(" Selected cycle: "));
+        lcd.print(F("Selected cycle: "));
         lcd.print(sdTempProfile.fileNumber);
+
+        lcd.setCursor(0,2);
+        lcd.print(F("Desc: "));
+        lcd.print(sdTempProfile.description);
 
         lcd.setCursor(0,3);
         lcd.print("   Press Start...");
@@ -306,8 +316,6 @@ void configureOven()
     // This jumps to void loop()
 }
 
-// TODO max cycle length will be no longer than 18h with 
-// totalTimeRemaining as a uint
 void updateDisplay(String status, byte realTemp, byte setTemp, 
                    byte finalStageTemp, unsigned int secondsToNextTemp,
                    unsigned int totalSecondsRemaining)
@@ -372,7 +380,10 @@ void checkButtons()
 {
     // Select button scrolls through temperature profiles on SD card
     if(digitalRead(SELECT_BTN) == LOW && !ovenStarted)
-        scrollSDProfile();
+    {
+        sdTempProfile.fileNumber++;
+        readSDProfile();
+    }
 
     // Start button
     if(digitalRead(START_STOP_BTN) == LOW)
@@ -397,6 +408,78 @@ int getNextSDTempTime()
     return 0;
 }
 
+void readSDProfile()
+{
+    // IF THERE ARE ANY BUGS IN THE CODE THEY ARE HERE
+
+    // Convert fileNumber to char array
+    char fileName[4];
+    itoa(sdTempProfile.fileNumber, fileName, 10);
+
+    // Loop back to 0 if no higher file exists
+    if(pf_open(fileName))
+        sdTempProfile.fileNumber = 0;
+
+    // Otherwise, update sdTempProfile with the contents of the file
+    else
+    {
+        // Read the description (first 14 chars)
+        UINT bytesRead;
+        pf_read(sdTempProfile.description, 14, &bytesRead);
+        Serial.println("Read " + String(bytesRead) + " bytes");
+
+        // Read csv into sdTempProfile.
+        
+        // Move past the comma after description
+        pf_lseek(fs.fptr + 1);
+
+        // 5 char is enough to store max value of unsigned in
+        char charsNum[6];
+        
+        // Location in sdTempProfile arrays
+        byte profileIndex;
+
+        // Index in charsNum 
+        byte charIndex;
+
+        // true means temp, false means time
+        bool isTemp = true;     
+
+        // bytesRead = 0 when EOF is reached
+        while(bytesRead > 0) 
+        {
+            pf_read(&charsNum[charIndex], 1, &bytesRead);
+
+            // Comma or EOF reached
+            if(bytesRead < 1 || !isDigit(charsNum[charIndex]))
+            {
+                charsNum[charIndex] = '\0';
+                String strNum = String(charsNum);
+
+                Serial.println("Got strNum: " + strNum);
+
+                // Convert and store value in profile
+                // This breaks if profile contains too large of numbers
+                if(isTemp == true)
+                    sdTempProfile.temps[profileIndex] = strNum.toInt();
+                else
+                {
+                    sdTempProfile.times[profileIndex] = strNum.toInt();
+                    profileIndex++;
+                }
+
+                // Prepare to get next number string
+                charIndex = 0;
+            }
+            else
+                charIndex++;
+        }
+    }
+
+    // Debounce
+    delay(250);
+}
+
 byte interpolateTemp()
 {
     // Linearly interpolates values when temperature profile ramps
@@ -409,30 +492,6 @@ byte interpolateTemp()
     byte         dy = sdTempProfile.temps[i+1] - sdTempProfile.temps[i];
 
     return sdTempProfile.temps[i] + ( ((millisStageStarted - millis())*dy) / dx );
-}
-
-void scrollSDProfile()
-{
-
-    // Looking for next file
-    sdTempProfile.fileNumber++;
-
-    // Convert fileNumber to char array
-    char fileName[4];
-    itoa(sdTempProfile.fileNumber, fileName, 10);
-
-    // Loop back if no higher file exists
-    if(pf_open(fileName))
-        sdTempProfile.fileNumber = 0;
-
-    // Debounce
-    delay(250);
-}
-
-void selectSDProfile()
-{
-    
-
 }
 
 int measureTemp()
