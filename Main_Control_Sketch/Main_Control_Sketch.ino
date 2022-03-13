@@ -136,7 +136,7 @@ void loop()
     {
         updateDisplay(
             displayStatus,
-            measureTemp(),
+            30,
             interpolateTemp(),
             sdTempProfile.temps[sdTempProfile.index],
             sdTempProfile.times[sdTempProfile.index] - (millis() - millisStageStarted)/1000,
@@ -368,7 +368,7 @@ void updateDisplay(String status, byte realTemp, byte setTemp,
     String totalRemainingStr = "";
 
     if(totalSecondsRemaining > 3600)
-        totalRemainingStr = String(float(totalSecondsRemaining)/3600, 1) + "h";
+        totalRemainingStr = String(float(totalSecondsRemaining)/3600.0, 1) + "h";
     else if(totalSecondsRemaining > 60)
         totalRemainingStr = String(totalSecondsRemaining / 60) + "m";
     else
@@ -378,7 +378,7 @@ void updateDisplay(String status, byte realTemp, byte setTemp,
     String nextTempStr = "";
 
     if(secondsToNextTemp > 3600)
-        nextTempStr = String(float(secondsToNextTemp)/3600, 1) + "h";
+        nextTempStr = String(float(secondsToNextTemp)/3600.0, 1) + "h";
     else if(totalSecondsRemaining > 60)
         nextTempStr = String(secondsToNextTemp / 60) + "m";
     else
@@ -431,6 +431,13 @@ void checkButtons()
 void readSDProfile()
 {
     // IF THERE ARE ANY BUGS IN THE CODE THEY ARE PROBABLY HERE
+
+    // Clear the profile arrays
+    for(int i = 0; i < 20; i++)
+    {
+        sdTempProfile.temps[i] = 0;
+        sdTempProfile.times[i] = 0;
+    }
 
     // Convert fileNumber to char array
     char fileName[4] = "   ";
@@ -516,9 +523,9 @@ byte interpolateTemp()
     return sdTempProfile.temps[i] + ( ((millisStageStarted - millis())*dy) / dx );
 }
 
-long getTotalTimeRemaining()
+unsigned long getTotalTimeRemaining()
 {
-    long sum = 0;
+    unsigned long sum = 0;
 
     // This is guaranteed to add at least the last value in times to sum
     for(byte i = sdTempProfile.index; i < 20; i++)
@@ -526,6 +533,7 @@ long getTotalTimeRemaining()
 
     // Subtract mid-stage time elapsed.
     sum -= (millis() - millisStageStarted)/1000;
+    Serial.println(sum);
     return sum;
 }
 
