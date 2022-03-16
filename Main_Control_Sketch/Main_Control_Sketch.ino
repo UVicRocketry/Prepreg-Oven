@@ -81,8 +81,6 @@ struct tempProfile
 bool ovenStarted = false;
 bool ovenFinished = false;
 
-String displayStatus = "";
-
 // Value of millis() when the next temp in the profile was set
 unsigned long millisStageStarted = 0;
 
@@ -113,9 +111,7 @@ void setup()
     if(pf_mount(&fs))
     {
         lcd.setCursor(1,1);
-        lcd.print(F(" SD mount failed!"));
-        while(true)
-            checkButtons();
+        ovenDone(F("SD Mount Failed"));
     }
 
     
@@ -135,7 +131,6 @@ void loop()
     if(millis() - lastMillis > 1000)
     {
         updateDisplay(
-            displayStatus,
             30,
             interpolateTemp(),
             sdTempProfile.temps[sdTempProfile.index],
@@ -337,9 +332,9 @@ void configureOven()
     // This jumps to void loop()
 }
 
-void updateDisplay(String status, byte realTemp, byte setTemp, 
-                   byte finalStageTemp, unsigned int secondsToNextTemp,
-                   unsigned long totalSecondsRemaining)
+void updateDisplay(byte realTemp, byte setTemp, byte finalStageTemp,
+                    unsigned int secondsToNextTemp,
+                    unsigned long totalSecondsRemaining)
 {
     /*
         Display is 4 lines, 20 char each
@@ -351,12 +346,11 @@ void updateDisplay(String status, byte realTemp, byte setTemp,
 
         secondsToNextTemp = 1620 (27 minutes)
         totalSecondsRemaining = 13320 (3.7 hours)
-        status = "Ramping", could be "Holding" or "Cooling" etc.
         _____________________
-        |Temp: 118/120 -> 150|
+        |Real 118  Target 120|
+        |Final stage temp 150|
         |27m left in stage   |
         |3.7h remaining      |
-        |Stat: Ramping       |
 
     */
 
@@ -388,17 +382,23 @@ void updateDisplay(String status, byte realTemp, byte setTemp,
 
     // Printing to the lcd line by line
     lcd.setCursor(0,0);
-    lcd.print("Temp: " + String(realTemp) + "/" + String(setTemp) + " -> "
-                + String(finalStageTemp));
+    lcd.print(F("Real "));
+    lcd.print(realTemp);
+    lcd.setCursor(10,0);
+    lcd.print(F("Target "));
+    lcd.print(setTemp);
 
     lcd.setCursor(0,1);
-    lcd.print(nextTempStr + " left in stage");
-    
-    lcd.setCursor(0,2);
-    lcd.print(totalRemainingStr + " remaining");
+    lcd.print(F("Final stage temp "));
+    lcd.print(finalStageTemp);
 
+    lcd.setCursor(0,2);
+    lcd.print(nextTempStr);
+    lcd.print(F(" left in stage"));
+    
     lcd.setCursor(0,3);
-    lcd.print("Stat: " + status);
+    lcd.print(totalRemainingStr);
+    lcd.print(F(" remaining"));
 }
 
 void checkButtons()
