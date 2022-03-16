@@ -2,10 +2,12 @@
 /*
     Prepreg Oven Main Control Sketch
 
-    This sketch controls the oven through PWM control of an AC heater circuit.
-    Buttons are used to control the settings on an LCD and
-    2 thermocouples are used for feedback. A microSD card provides a convenient
-    way to load temperature profiles with linearly interpolated values.
+    This sketch controls the oven using a PID loop with the output connected to
+    an AC heater circuit. 
+    
+    Buttons are used to control the settings on an LCD and 2 thermocouples are
+    used for feedback. A microSD card provides a convenient way to load
+    temperature profiles with linearly interpolated values.
 
     See README for temperature profile structure.
 
@@ -16,9 +18,6 @@
 */
 
 #include <Wire.h>
-
-// Make sure to adjust the contrast with the little pot on the back
-// if the text isn't very visible
 #include <LiquidCrystal_I2C.h>
 
 // https://github.com/fabianoriccardi/dimmable-light
@@ -80,6 +79,17 @@ struct tempProfile
 // Set by START_STOP_BTN
 bool ovenStarted = false;
 bool ovenFinished = false;
+
+// PID loop
+// TODO tune these PID values. 
+#define kP 1.0
+#define kI 1.0
+#define kD 1.0
+#define intThresh 10   // Prevents "integral windup". See set_PID_heater()
+#define PIDScale 0.1   // Scales PID value to roughly 0-100
+float prevError = 0;   // Error of the previous PID calculation
+float integral  = 0;   // Accumulation of integral values in PID
+long  timerDt   = 0;   // Tracks millis() for PID dt value
 
 // Value of millis() when the next temp in the profile was set
 unsigned long millisStageStarted = 0;
@@ -151,6 +161,9 @@ void loop()
         sdTempProfile.index++;
         millisStageStarted = millis();
     }
+
+    setHeaterPowerPID(measureTemp(), interpolateTemp(), millis() - timerDt);
+    timerDt = millis();
 }
 
 void configureOven()
@@ -378,8 +391,6 @@ void updateDisplay(byte realTemp, byte setTemp, byte finalStageTemp,
     else
         nextTempStr = "<1m";
 
-
-
     // Printing to the lcd line by line
     lcd.setCursor(0,0);
     lcd.print(F("Real "));
@@ -553,15 +564,40 @@ int measureTemp()
     return (voltage - 1.59) / 0.005;
 }
 
-void setHeaterPowerPID(byte realTemp, byte targetTemp)
+void setHeaterPowerPID(byte realTemp, byte targetTemp, float dt)
 {
 
+    float error = targetTemp - realTemp;
+
+    // We only include integral when the oven is already
+    // within intThresh degrees of the tempSet to prevent it from dominating
+    // This behaviour is called "integral windup"
+    if(abs(error) < intThresh)
+        integral += error*dt / 1000; // ms->s
+    else
+        integral = 0;
+
+    float derivative = (error - prevError) / dt;
+    float pwr = (error*kP) + (integral*kI) + (derivative*kD);
+
+    pwr *= PIDScale;
+
+    // The circuit is not rated for the full power of the heater
+    // so we limit the values to 0-100 rather than 0-255
+    if(pwr > 100)
+        pwr = 100;
+    else if(pwr < 0)
+        pwr = 0;
+
+    heater.setBrightness(pwr);
+
+    prevError = error;
 }
 
 // Status 20 chars max
 void ovenDone(String status)
 {
-    setHeaterPowerPID(0, 0);
+    heater.setBrightness(0);
     ovenFinished = true;
     lcd.clear();
 
