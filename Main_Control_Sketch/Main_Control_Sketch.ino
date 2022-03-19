@@ -524,14 +524,13 @@ byte interpolateTemp()
 {
     // Linearly interpolates values when temperature profile ramps
     // (y) = y1 + [(x-x1) × (dy)]/ (dx) where y is interpolated temp
-    // TODO how bad is error due to integer truncation here?
 
     byte i = sdTempProfile.index;
 
-    unsigned int dx = sdTempProfile.times[i+1] - sdTempProfile.times[i];
-    byte         dy = sdTempProfile.temps[i+1] - sdTempProfile.temps[i];
+    float dx = sdTempProfile.times[i+1] - sdTempProfile.times[i];
+    float dy = sdTempProfile.temps[i+1] - sdTempProfile.temps[i];
 
-    return sdTempProfile.temps[i] + ( ((millisStageStarted - millis())*dy) / dx );
+    return sdTempProfile.temps[i] + ( (float((millisStageStarted - millis()))*dy) / dx );
 }
 
 unsigned long getTotalTimeRemaining()

@@ -1,0 +1,6 @@
+(sym_lib_table
+  (lib (name motor_drive)(type Legacy)(uri ${KIPRJMOD}/motor_drive.lib)(options "")(descr ""))
+  (lib (name Thermocouple)(type Legacy)(uri ${KIPRJMOD}/Thermocouple.lib)(options "")(descr ""))
+  (lib (name LCD_SCREEN)(type Legacy)(uri ${KIPRJMOD}/LCD_SCREEN.lib)(options "")(descr ""))
+  (lib (name OvenControl-rescue)(type Legacy)(uri ${KIPRJMOD}/OvenControl-rescue.lib)(options "")(descr ""))
+)

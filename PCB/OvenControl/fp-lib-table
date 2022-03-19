@@ -1,0 +1,3 @@
+(fp_lib_table
+  (lib (name OvenControl_custom_parts)(type KiCad)(uri ${KIPRJMOD}/OvenControl_custom_parts.pretty)(options "")(descr ""))
+)
